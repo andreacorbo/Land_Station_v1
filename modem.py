@@ -3,17 +3,11 @@ from ymodem import YMODEM
 import os
 import time
 from datetime import datetime
+import config
+import split_file
 #ATDT3284135433
-autoanswer = True
-test_mode = False
-byte = b''
-word = ''
-filename = ''
-softwarepath = "software/"
-datapath = "raw/"
-logfile = "log.txt"
 
-with serial.Serial('com4', 9600, timeout=10, rtscts=False, xonxoff=False, ) as ser:
+with serial.Serial(config.COM_PORT, config.BAUD_RATE, timeout=10, rtscts=False, xonxoff=False, ) as ser:
 
     def _getc(size, timeout=1):
         x = ser.read(size)
@@ -29,45 +23,65 @@ with serial.Serial('com4', 9600, timeout=10, rtscts=False, xonxoff=False, ) as s
         else:
             return False
 
+    def init():
+        ser.reset_input_buffer()
+        for at in [b'ATS0=1\r', b'AT&W\r']:
+            ser.write(at)
+            t0 = time.time()
+            while True:
+                if time.time() - t0 > config.CALL_TIMEOUT:
+                    return False
+                rxd = ser.read_until(b'\r\n')
+                try:
+                    rxd = rxd.decode("utf-8")
+                except UnicodeError:
+                    continue
+                print(rxd)
+                if "ERROR" in rxd:
+                    return False
+                if "OK" in rxd:
+                    break
+        return True
+
     def files_to_send():
-        tmp = []
-        for dir in os.listdir(softwarepath):
-            for file in os.listdir(softwarepath + dir):
-                if file[0] not in ("$", "_"):  # check for unsent files
-                    tmp.append(softwarepath + dir + '/' + file)
-        return tmp
+        for root, subdirs, files in os.walk(config.SOFTWARE_DIR):
+            for file in files:
+                if file[0] not in (config.TMP_FILE_PFX, config.SENT_FILE_PFX):
+                    yield os.path.join(root, file)
+        if any (files for root, subdirs, files in os.walk(config.SOFTWARE_DIR)):
+            yield "\x00"
 
     def hangup():
-        """Ends a call.
-
-        Returns:
-            True or False
-        """
         ser.reset_input_buffer()
-        ser.reset_output_buffer()
         for at in [b'+++', b'ATH\r']:
             ser.write(at)
             t0 = time.time()
             while True:
-                time.sleep(0.5)
-                if time.time() - t0 == 10:
+                if time.time() - t0 > config.CALL_TIMEOUT:
                     return False
-                if ser.in_waiting:
-                    rxd =ser.read()
-                    print("\r\n{}".format(rxd.decode("utf-8")), end="")
-                    if "ERROR" in rxd:
-                        return False
-                    if "OK" in rxd:
-                        break
+                rxd = ser.read_until(b'\r\n')
+                try:
+                    rxd = rxd.decode("utf-8")
+                except UnicodeError:
+                    continue
+                print(rxd)
+                if "ERROR" in rxd:
+                    return False
+                if "OK" in rxd:
+                    break
         return True
 
-    rx = ''
+    if not config.DEBUG:
+        init()
     ready = False
     connected = False
+    rxd = ""
+    ymodem = YMODEM(_getc, _putc, mode='Ymodem1k')
     while True:
         if not ready:
             ser.reset_input_buffer()
             ser.reset_output_buffer()
+            split_file.main()
             print('########################################')
             print('#                                      #')
             print('#           YMODEM RECEIVER V1.1       #')
@@ -76,46 +90,43 @@ with serial.Serial('com4', 9600, timeout=10, rtscts=False, xonxoff=False, ) as s
             ser.write(b'AT\r')
             ready = True
         if ser.in_waiting:
-            byte_ = ser.read(1)
-            if byte_ == b'':
+            byte = ser.read(1)
+            if byte == b'':
                 continue
-                #hangup()
-            elif byte_ == b'\n':
+            elif byte == b'\n':
                 continue
-            elif byte_ == b'\r':
-                if rx:
+            elif byte == b'\r':
+                if rxd:
                     if "log.txt" in os.listdir():
                         filemode = "a"
                     else:
                         filemode = "w"
-                    print(rx)
-                    with open(logfile,filemode) as log:
-                        log.write("{: " "<30}{}\r\n".format(datetime.now().strftime("%Y-%m-%d %H:%M:%S UTC"), rx))
-                    if rx == 'OK':
+                    with open(config.LOG,filemode) as log:
+                        log.write("{: " "<30}{}\r\n".format(datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC"), rxd))
+                    if rxd == 'OK':
                         print('READY')
-                    elif rx == 'RING' and not autoanswer:
+                    elif rxd == 'RING' and not config.AUTOANSWER:
                         ser.write(b'ATA\r')
-                    elif 'CONNECT' in rx:
-                        time.sleep(5)
+                    elif 'CONNECT' in rxd:
                         connected = True
-                    elif rx == 'NO CARRIER':
+                    elif rxd == 'NO CARRIER':
                         ready = False
-                    elif rx == '+++':
+                    elif rxd == '+++':
                         connected = False
-                    elif rx == 'ATH':
+                    elif rxd == 'ATH':
                         pass
-                        #ser.write(b'OK\r')
-                    if connected and not test_mode:
-                        ser.read(1)  # Clear last byte \n
-                        modem = YMODEM(_getc, _putc, mode='Ymodem1k')
-                        #if not modem.recv(datapath):
-                        #    connected = False
-                        #    ready = False
-                        modem.recv(datapath)
-                        time.sleep(2)
-                        modem.send(files_to_send(), "$", "_")
+                    print(rxd)
+                    rxd = ""
+                    if connected:
+                        ser.reset_input_buffer()
+                        #time.sleep(1)
+                        ymodem.recv(config.BUOY_DATA_DIR + config.RAW_DIR)
+                        time.sleep(1)
+                        #if files_to_send():
+                        #   ymodem.send(files_to_send(), config.TMP_FILE_PFX, config.SENT_FILE_PFX)
+                        #time.sleep(20)
+                        #hangup()
                         connected = False
-                        ready = False
-                    rx = ''
+                        #ready = False
             else:
-                rx += chr(ord(byte_))
+                rxd += chr(ord(byte))
