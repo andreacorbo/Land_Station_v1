@@ -64,7 +64,6 @@ def garbage_data_path(filepath):
     new_file = file + cfg.DATA_FILE_EXT  # yyyymmdd.txt
     return (id + '_' + cfg.BUOY_ID[id] + '/' + cfg.GARBAGE_DATA_DIR + new_file)  # /xxx_MAMBO_X/garbage/yyyymmdd.txt
 
-
 # Stores sent bytes counter into temp file.
 def set_last_byte(tmp_file, pointer):
     with open(tmp_file, 'w') as part:
@@ -80,16 +79,6 @@ def get_last_byte(tmp_file, stream):
     except:
         pass
     stream.seek(pointer)
-
-def reformat_date(iso8601):
-    # Re-formats controller timestamp according to NODC specs.
-    # yyyy-mm-ddThh:mm:ssZ -> mmddyy,hhmmss
-    ts = iso8601.split('T')
-    dt = ts[0].split('-')
-    dt = '{}{}{}'.format(dt[1],dt[2],dt[0][2:])
-    tm = ts[1][:-1].split(':')
-    tm = '{}{}{}'.format(tm[0],tm[1],tm[2])
-    return '{},{}'.format(dt,tm)
 
 # Processes the raw files.
 def main():
@@ -108,86 +97,69 @@ def main():
             try:
                 int(file)
                 # Opens raw data file.
+                line = []
                 with open(cfg.BUOY_DATA_DIR + cfg.RAW_DIR + dir + '/' + file, 'r') as raw:
                     print('PROCESSING {} FILE {}'.format(dir.upper(), file))
                     # Gets last processed byte from tmp file.
                     get_last_byte(cfg.BUOY_DATA_DIR + cfg.RAW_DIR + '/' + dir + '/' + cfg.TMP_FILE_PFX + file, raw)
-                    # Reads raw file line by line.
-                    #lines = raw.readlines()
-                    #print(lines)
                     i=0
-                    for l in raw:
-                        ########################################################
-                        #if line[0:5] == '$ADCP':
-                            #line = line.replace('$ADCP','$NORTEK')
-                            #line = line.replace(' ',',')  # Todo: remove at next firmware update.
-                        # Marks down 'METRECX' data as raw data 'METRECXR'
-                        #if line[0:8] == '$METRECX':
-                        #    line = line.replace('$METRECX','$METRECXR')
-                        ########################################################
-                        line = l.lstrip('\x1a')  # Removes missed pad bytes.
-                        print(line[:-1],end='\r')
-                        line = line.split(',')
-                        # Splits lines to capture selected NMEA sentences.
-                        if line[0] == '$YOUNG':
-                            if len(line) == 14:
-                                line[0] = '$METEO'  # To be compliant with old rules.
-                                ####################################################
-                                # To be removed at next firmware update.
-                                try:
-                                    if float(line[3]) / float(line[11]) > 10:
-                                        line[11] = '{:.1f}'.format(float(line[11])*10)
-                                except:
-                                    pass
-                                ####################################################
-                                line[2] = reformat_date(line[2])  # To be compliant with old rules.
+                    while True:
+                        c = raw.read(1)
+                        if not c:
+                            break
+                        if c == '$' and line:
+                            line = ''.join(line)
+                            print(line[:-1],end='\r')
+                            # Splits lines to capture selected NMEA sentences.
+                            line = line.split(',')
+                            if line[0] == '$YOUNG':
+                                # Formats data as string.
+                                l = len(line)
                                 data = ','.join(line)  # ',' separated list.
-                                buoy_data.append(data)
-                            else:
-                                garbage_data.append(data)
-                        if line[0] == '$METRECXR':
-                            if len(line) == 14:
-                                try:
-                                    ####################################################
-                                    # Adds the 2 missed analog channels.
-                                    if len(line) == 14:
-                                        for _ in range(2):
-                                            line.insert(9,'00.00')
-                                    ####################################################
-                                except:
-                                    pass
-                                line[2] = reformat_date(line[2])  # To be compliant with old rules.
+                                if l == 14:
+                                    buoy_data.append(data)
+                                else:
+                                    garbage_data.append(data)
+                            if line[0] == '$METRECXR':
+                                # Formats data as string.
+                                l = len(line)
                                 data = ','.join(line)  # ',' separated list.
-                                buoy_data.append(data)
-                            else:
-                                garbage_data.append(data)
-                        if line[0] == '$MSTAT':
-                            if len(line) == 11:
-                                line[2] = reformat_date(line[2])  # To be compliant with old rules.
-                                data = ','.join(line)  # ',' separated list.
-                                mstat_data.append(data)
-                            else:
-                                garbage_data.append(data)
-                        if line[0] == '$GPRMC':
-                            if len(line) == 13:
-                                data = ','.join(line)  # ',' separated list.
-                                gprmc_data.append(data)
-                            else:
-                                garbage_data.append(data)
-                        if line[0] == '$NORTEK':
-                            if len(line) == 99:
-                                line[2] = reformat_date(line[2])  # To be compliant with old rules.
+                                if l == 14:
+                                    buoy_data.append(data)
+                                else:
+                                    garbage_data.append(data)
+                            if line[0] == '$MSTAT':
                                 # Formats data as string, removes NMEA sentence tag.
-                                data = ';'.join(line[3:])  # ';' separated list.
-                                adcp_data.append(data)
-                            else:
-                                garbage_data.append(data)
-                        #time.sleep(0.005)
-                        i+=1
+                                l = len(line)
+                                data = ','.join(line)  # ',' separated list.
+                                if l == 11:
+                                    mstat_data.append(data)
+                                else:
+                                    garbage_data.append(data)
+                            if line[0] == '$GPRMC':
+                                # Formats data as string, removes NMEA sentence tag.
+                                l = len(line)
+                                data = ','.join(line)  # ',' separated list.
+                                if l == 13:
+                                    gprmc_data.append(data)
+                                else:
+                                    garbage_data.append(data)
+                            if line[0] == '$NORTEK':
+                                # Formats data as string, removes NMEA sentence tag.
+                                l = len(line)
+                                data = ','.join(line)  # ',' separated list.
+                                if l == 99:
+                                    adcp_data.append(data)
+                                else:
+                                    garbage_data.append(data)
+                            i+=1
+                            line = []
+                        line.append(c)
                     print('{} {:' '<1000}'.format(i,'LINES'))
                     pointer = raw.tell()  # Moves pointer to the end of file.
                     # Writes out last processed byte.
                     set_last_byte(cfg.BUOY_DATA_DIR + cfg.RAW_DIR + '/' + dir + '/'+ cfg.TMP_FILE_PFX + file, pointer)
+                    print(buoy_data)
                     # Writes out data to buoy file.
                     with open(cfg.BUOY_DATA_DIR + buoy_data_path(dir + '/' + file), 'a') as data_file:
                         for row in buoy_data:
@@ -204,11 +176,11 @@ def main():
                     with open(cfg.ADCP_DATA_DIR + adcp_data_path(dir + '/' + file), 'a') as adcp_file:
                         for row in adcp_data:
                             adcp_file.write(row)
-                # Writes out data to garbage file.
-                with open(cfg.BUOY_DATA_DIR + garbage_data_path(dir + '/' + file), 'a') as garbage_file:
-                    for row in garbage_data:
-                        garbage_file.write(row)
-            # Checks if file has been completely processed and there is a newer file in raw dir.
+                    # Writes out data to garbage file.
+                    with open(cfg.GARBAGE_DATA_DIR + garbage_data_path(dir + '/' + file), 'a') as garbage_file:
+                        for row in garbage_data:
+                            garbage_file.write(row)
+                # Checks if file has been completely processed and there is a newer file in raw dir.
                 if pointer == os.stat(cfg.BUOY_DATA_DIR + cfg.RAW_DIR + '/' + dir + '/' + file)[6] and new_file_in_dir(cfg.BUOY_DATA_DIR + cfg.RAW_DIR + '/' + dir):
                     try:
                         # Marks down file as completely processed.

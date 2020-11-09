@@ -1,132 +1,181 @@
 # main.py
 # MIT license; Copyright (c) 2020 Andrea Corbo
 
-import asyncio
+import serial
+from ymodem import YMODEM
+import os
 import time
 from datetime import datetime
-import serial
-import os
-from ymodem import YMODEM
-import config
+import cfg
 import split_file
-#ATDT3284135433
+# 3284135433 COM4 Wavecom Boe
+# 3358489872 COM3 Siemens Isonzo
+# 3284135443 MAMBO2
+# 3355083535 ?
 
-with serial.Serial(config.COM_PORT, config.BAUD_RATE, timeout=10, rtscts=False, xonxoff=False, ) as ser:
+with serial.Serial(cfg.COM_PORT, cfg.BAUD_RATE, timeout=10, rtscts=False, xonxoff=False) as s:
 
-    def _getc(size, timeout=1):
-        x = ser.read(size)
-        if x:
-            return x
-        else:
-            return False
+    def getc(size, timeout=1):
+        s.timeout = timeout
+        res = s.read(size)
+        if res:
+            return res
+        return None
 
-    def _putc(data, timeout=1):
-        x = ser.write(data)
-        if x:
-            return x
-        else:
-            return False
+    def putc(data, timeout=1):
+        s.write_timeout = timeout
+        res = s.write(data)
+        if res:
+            return res
+        return None
 
     def init():
-        ser.reset_input_buffer()
-        for at in [b'ATS0=1\r', b'AT&W\r']:
-            ser.write(at)
-            t0 = time.time()
-            while True:
-                if time.time() - t0 > config.CALL_TIMEOUT:
-                    return False
-                rxd = ser.read_until(b'\r\n')
+        print('INITIALIZING MODEM...')
+        s.reset_input_buffer()
+        for at in cfg.INIT_ATS:
+            ret = True
+            i = 0
+            while i < cfg.RETRY:
+                if ret:
+                    time.sleep(1)
+                    s.write(at)
+                rxd = s.read_until(b'\r\n')
                 try:
-                    rxd = rxd.decode("utf-8")
+                    rxd.decode('utf-8')
                 except UnicodeError:
                     continue
-                print(rxd)
-                if "ERROR" in rxd:
-                    return False
-                if "OK" in rxd:
+                print(rxd.decode('utf-8'))
+                if at in rxd:
+                    ret = False
+                if b'ERROR' in rxd:
+                    ret = True
+                    i += 1
+                    continue
+                if b'OK' in rxd:
+                    ret = True
                     break
-        return True
-
-    def files_to_send():
-        for root, subdirs, files in os.walk(config.SOFTWARE_DIR):
-            for file in files:
-                if file[0] not in (config.TMP_FILE_PFX, config.SENT_FILE_PFX):
-                    yield os.path.join(root, file)
-        if any (files for root, subdirs, files in os.walk(config.SOFTWARE_DIR)):
-            yield "\x00"
 
     def hangup():
-        ser.reset_input_buffer()
-        for at in [b'+++', b'ATH\r']:
-            ser.write(at)
-            t0 = time.time()
-            while True:
-                if time.time() - t0 > config.CALL_TIMEOUT:
-                    return False
-                rxd = ser.read_until(b'\r\n')
+        tout = s.timeout
+        s.timeout = 2
+        s.reset_input_buffer()
+        for at in cfg.HANGUP_ATS:
+            ret = True
+            i = 0
+            while i < cfg.RETRY:
+                if ret:
+                    time.sleep(1)
+                    s.write(at)
+                rxd = s.read_until(b'\r\n')
                 try:
-                    rxd = rxd.decode("utf-8")
+                    rxd.decode('utf-8')
                 except UnicodeError:
                     continue
-                print(rxd)
-                if "ERROR" in rxd:
-                    return False
-                if "OK" in rxd:
+                print(rxd.decode('utf-8'))
+                if at in rxd:
+                    ret = False
+                if b'ERROR' in rxd:
+                    ret = True
+                    i += 1
+                    continue
+                if b'OK' in rxd:
+                    ret = True
                     break
-        return True
+                if b'' in rxd:
+                    ret = True
+                    break
+        s.timeout = tout
 
-    if not config.DEBUG:
-        init()
+    def files_to_send():
+        for root, subdirs, files in os.walk(os.getcwd()):
+            for f in files:
+                if f[0] not in (cfg.TMP_FILE_PFX, cfg.SENT_FILE_PFX):
+                    yield os.path.join(root, f)
+        #if any (files for root, subdirs, files in os.walk(os.getcwd())):
+        yield '\x00'
+
+    # Gets caller identity.
+    def preamble():
+        for _ in range(30):
+            res = getc(6,10)
+            if res is not None:
+                res = res.decode('utf-8')
+                print('<-- {}'.format(res))
+                if res.startswith('mambo'):
+                    print('ACK -->')
+                    putc(b'\x06')  # ACK
+                    return res
+                else:
+                    print('NAK -->')
+                    putc(b'\x15')  # NACK
+                    return False
+        return False
+
+
+    #if not cfg.DEBUG:
+    #    init()  # Initializes modem.
     ready = False
     connected = False
-    rxd = ""
-    ymodem = YMODEM(_getc, _putc, mode='Ymodem1k')
+    rxd = ''
+    ymodem = YMODEM(getc, putc, 6, 30)
     while True:
         if not ready:
-            ser.reset_input_buffer()
-            ser.reset_output_buffer()
+            s.reset_input_buffer()
+            s.reset_output_buffer()
             split_file.main()
             print('########################################')
             print('#                                      #')
-            print('#           YMODEM RECEIVER V1.1       #')
+            print('#             YMODEM V1.1              #')
             print('#                                      #')
             print('########################################')
-            ser.write(b'AT\r')
-            ready = True
-        if ser.in_waiting:
-            rxd = ser.read_until(b'\r\n')
             try:
-                rxd = rxd.decode("utf-8")
+                hangup()  # Hangup if still connected.
+            except:
+                pass
+            ready = True
+        if s.in_waiting:
+            rxd = s.read_until(b'\r\n')
+            try:
+                rxd.decode('utf-8')[:-2]
             except UnicodeError:
                 continue
-            if rxd:
-                if "log.txt" in os.listdir():
-                    filemode = "a"
-                else:
-                    filemode = "w"
-                with open(config.LOG,filemode) as log:
-                    log.write("{: " "<30}{}\r\n".format(datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC"), rxd))
-                if 'OK' in rxd:
-                    print('READY')
-                elif 'RING' in rxd and not config.AUTOANSWER:
-                    ser.write(b'ATA\r')
-                elif 'CONNECT' in rxd:
-                    connected = True
-                elif 'NO CARRIER' in rxd:
-                    ready = False
-                elif '+++' in rxd:
-                    connected = False
-                elif 'ATH' in rxd:
-                    pass
-                print(rxd)
-                if connected:
-                    ser.reset_input_buffer()
-                    #time.sleep(1)
-                    ymodem.recv(config.BUOY_DATA_DIR + config.RAW_DIR)
-                    time.sleep(1)
-                    #if files_to_send():
-                    #   ymodem.send(files_to_send(), config.TMP_FILE_PFX, config.SENT_FILE_PFX)
-                    #time.sleep(20)
+            print(rxd.decode('utf-8')[:-2])
+            if 'log.txt' in os.listdir():
+                filemode = 'a'
+            else:
+                filemode = 'w'
+            with open(cfg.LOG,filemode) as log:
+                log.write('{: ' '<30}{}\r\n'.format(datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%SZ'), rxd.decode('utf-8')[:-2]))
+            if b'OK' in rxd:
+                print('READY')
+            elif b'RING' in rxd and not cfg.AUTOANSWER:
+                s.write(b'ATA\r')
+            elif b'CONNECT' in rxd:
+                connected = True
+            elif b'NO CARRIER' in rxd:
+                ready = False
+            elif b'+++' in rxd:
+                connected = False
+            elif b'ATH' in rxd:
+                pass
+            if connected:
+                s.reset_input_buffer()
+                try:
+                    root = os.getcwd()
+                    remote = preamble()
+                    if remote:
+                        os.chdir(cfg.BUOY_DATA_DIR + cfg.RAW_DIR + remote)  # Moves to caller home.
+                        print('CWD {}'.format(os.getcwd()))
+                        ymodem.recv()
+                        time.sleep(1)
+                        os.chdir(os.getcwd() + '/' + cfg.SOFTWARE_DIR)  # Moves to sofware directory.
+                        print('CWD {}'.format(os.getcwd()))
+                        if files_to_send():
+                            ymodem.send(files_to_send())
+                        os.chdir(root)
+                except Exception as err:
+                    print(err)
                     #hangup()
-                    connected = False
-                    #ready = False
+                ready = False
+                connected = False
+        time.sleep(0.1)
