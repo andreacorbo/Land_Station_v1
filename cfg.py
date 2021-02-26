@@ -26,7 +26,8 @@ CALL_ATTEMPT = 3
 BUOY_ID = {
     '300' : 'MAMBO_2',
     '400' : 'MAMBO_3',
-    '500' : 'MAMBO_4'
+    '500' : 'MAMBO_4',
+    '000' : 'MAMBO_0'
 }
 BUOY_DATA_DIR = './boe/PC_Boe_Stazione_di_terra_runtime/'
 BUOY_RT_DIR = 'rt/'
