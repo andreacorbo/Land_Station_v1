@@ -40,3 +40,4 @@ ARCHIVED_FILE_PFX = '_'
 TMP_FILE_PFX = '$'
 SENT_FILE_PFX = '#'
 DATA_FILE_EXT = '.txt'
+SPLIT_FILES = False

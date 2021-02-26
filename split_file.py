@@ -1,5 +1,5 @@
 # split_file.py
-# MIT license; Copyright (c) 2020 Andrea Corbo
+# MIT license; Copyright (c) 2020 - 2021 Andrea Corbo
 
 import os
 import datetime
@@ -117,14 +117,6 @@ def main():
                     #print(lines)
                     i=0
                     for l in raw:
-                        ########################################################
-                        #if line[0:5] == '$ADCP':
-                            #line = line.replace('$ADCP','$NORTEK')
-                            #line = line.replace(' ',',')  # Todo: remove at next firmware update.
-                        # Marks down 'METRECX' data as raw data 'METRECXR'
-                        #if line[0:8] == '$METRECX':
-                        #    line = line.replace('$METRECX','$METRECXR')
-                        ########################################################
                         line = l.lstrip('\x1a')  # Removes missed pad bytes.
                         print(line[:-1],end='\r')
                         line = line.split(',')
@@ -132,24 +124,6 @@ def main():
                         if line[0] == '$YOUNG':
                             if len(line) == 14:
                                 line[0] = '$METEO'  # To be compliant with old rules.
-                                ####################################################
-                                # To be removed at next firmware update (gust dir).
-                                #try:
-                                #    wd = float(line[3]) - 180
-                                #    if wd < 0:
-                                #        wd += 360
-                                #    line[3] = '{:.1f}'.format(wd)
-                                #except:
-                                #    pass
-                                #try:
-                                #    #if float(line[3]) / float(line[11]) > 9:
-                                #    gd = (float(line[11])*10) - 180
-                                #    if gd < 0:
-                                #        gd += 360
-                                #    line[11] = '{:.1f}'.format(gd)
-                                #except:
-                                #    pass
-                                ####################################################
                                 line[2] = reformat_date(line[2])  # To be compliant with old rules.
                                 data = ','.join(line)  # ',' separated list.
                                 buoy_data.append(data)
@@ -157,15 +131,6 @@ def main():
                                 garbage_data.append(data)
                         if line[0] == '$METRECXR':
                             if len(line) == 16:
-                                ####################################################
-                                # Adds the 2 missed analog channels.
-                                #try:
-                                #    if len(line) == 14:
-                                #        for _ in range(2):
-                                #            line.insert(9,'00.00')
-                                #except:
-                                #    pass
-                                ####################################################
                                 line[2] = reformat_date(line[2])  # To be compliant with old rules.
                                 data = ','.join(line)  # ',' separated list.
                                 buoy_data.append(data)

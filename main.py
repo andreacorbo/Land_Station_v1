@@ -122,7 +122,8 @@ with serial.Serial(cfg.COM_PORT, cfg.BAUD_RATE, timeout=10, rtscts=False, xonxof
         if not ready:
             s.reset_input_buffer()
             s.reset_output_buffer()
-            split_file.main()
+            if cfg.SPLIT_FILES:
+                split_file.main()
             print('########################################')
             print('#                                      #')
             print('#             YMODEM V1.1              #')
