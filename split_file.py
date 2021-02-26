@@ -134,7 +134,6 @@ def main():
                                 line[0] = '$METEO'  # To be compliant with old rules.
                                 ####################################################
                                 # To be removed at next firmware update (gust dir).
-<<<<<<< HEAD
                                 #try:
                                 #    wd = float(line[3]) - 180
                                 #    if wd < 0:
@@ -150,23 +149,6 @@ def main():
                                 #    line[11] = '{:.1f}'.format(gd)
                                 #except:
                                 #    pass
-=======
-                                try:
-                                    wd = float(line[3]) - 180
-                                    if wd < 0:
-                                        wd += 360
-                                    line[3] = '{:.1f}'.format(wd)
-                                except:
-                                    pass
-                                try:
-                                    #if float(line[3]) / float(line[11]) > 9:
-                                    gd = (float(line[11])*10) - 180
-                                    if gd < 0:
-                                        gd += 360
-                                    line[11] = '{:.1f}'.format(gd)
-                                except:
-                                    pass
->>>>>>> c94baf6160bd652c7ee3d77e863e89c7b6535073
                                 ####################################################
                                 line[2] = reformat_date(line[2])  # To be compliant with old rules.
                                 data = ','.join(line)  # ',' separated list.
